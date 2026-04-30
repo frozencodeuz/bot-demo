@@ -15,7 +15,7 @@ process.env.TZ = "Asia/Tashkent";
 
 const BOT_TOKEN =
   process.env.BOT_TOKEN ||
-  "8671638824:AAG7qNvCu9pmYg8TCejj5iWtcUK9hJyfH68";
+  "";
 
 const GOOGLE_SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL ||
@@ -265,14 +265,33 @@ function generateAppealId() {
   return `${Math.floor(Date.now() / 1000)}${Math.floor(100 + Math.random() * 900)}`;
 }
 
+function getAppealTypeText(type) {
+  if (type === "corruption") {
+    return "Коррупцион ҳолат бўйича хабар";
+  }
+
+  return "Мурожаат";
+}
+
+function getAppealTypeHashTag(type) {
+  if (type === "corruption") {
+    return "#коррупция";
+  }
+
+  return "#мурожаат";
+}
+
 function generateReport(data, appealId, statusInfo) {
   const safe = {};
   for (const [key, value] of Object.entries(data || {})) {
     safe[key] = escapeHtml(value);
   }
 
-  let report = `📄 <b>МУРОЖААТ ВАРАҚАСИ №${escapeHtml(appealId)}</b>\n`;
+  const appealTypeText = getAppealTypeText(data?.appeal_type || "appeal");
+
+  let report = `📄 <b>${escapeHtml(appealTypeText).toUpperCase()} ВАРАҚАСИ №${escapeHtml(appealId)}</b>\n`;
   report += "--------------------------------------------------\n";
+  report += `<b>Тури:</b> ${escapeHtml(appealTypeText)}\n`;
   report += `<b>Ҳолати:</b> ${statusInfo.emoji} <b>${escapeHtml(statusInfo.text)}</b>\n`;
   report += "--------------------------------------------------\n";
   report += `<b>Кимдан:</b> ${safe.name || ""}\n`;
@@ -285,7 +304,13 @@ function generateReport(data, appealId, statusInfo) {
   report += "📍 <b>Манзил:</b>\n";
   report += `🏘 Маҳалла: ${safe.mahalla || ""}\n`;
   report += `🏠 Уй манзили: ${safe.address || ""}\n\n`;
-  report += "📝 <b>Мурожаат мазмуни:</b>\n";
+
+  if (data?.appeal_type === "corruption") {
+    report += "🚨 <b>Коррупцион ҳолат мазмуни:</b>\n";
+  } else {
+    report += "📝 <b>Мурожаат мазмуни:</b>\n";
+  }
+
   report += `${safe.appeal_text || ""}\n`;
   report += "--------------------------------------------------\n";
   report += "🕒 <b>ВАҚТ НАЗОРАТИ:</b>\n";
@@ -308,6 +333,11 @@ function generateReport(data, appealId, statusInfo) {
   }
 
   report += "--------------------------------------------------\n";
+
+  if (data?.appeal_type === "corruption") {
+    report += "🔒 <b>Эслатма:</b> хабар берувчининг шахси қонунчиликда белгиланган тартибда сир сақланади.\n";
+    report += "--------------------------------------------------\n";
+  }
 
   if (data?.user_id) {
     report += `👤 <a href='tg://user?id=${escapeHtml(data.user_id)}'>Фойдаланувчи профили</a>`;
@@ -354,6 +384,8 @@ function makeCreateSheetPayload(appealId, data) {
   return {
     action: "create",
     id: appealId,
+    appeal_type: data.appeal_type || "appeal",
+    appeal_type_text: getAppealTypeText(data.appeal_type || "appeal"),
     created_at: data.created_at,
     status: "Янги",
     name: data.name,
@@ -373,6 +405,8 @@ function makeUpdateSheetPayload(appealId, action, data) {
   const base = {
     action: "update",
     id: appealId,
+    appeal_type: data.appeal_type || "appeal",
+    appeal_type_text: getAppealTypeText(data.appeal_type || "appeal"),
     timestamp: now(),
   };
 
@@ -410,9 +444,32 @@ function makeUpdateSheetPayload(appealId, action, data) {
   return base;
 }
 
+async function showAppealTypeMenu(chatId) {
+  let msg = "✅ Раҳмат!\n\n";
+  msg += "Илтимос, мурожаат турини танланг:\n\n";
+  msg += "📝 <b>Мурожаат йўллаш</b> — умумий масала, таклиф, ариза ёки шикоят юбориш.\n";
+  msg += "🚨 <b>Коррупцион ҳолат бўйича хабар бериш</b> — пора, таъмагирлик, мансабни суиистеъмол қилиш ёки шубҳали ҳолат ҳақида хабар бериш.\n\n";
+  msg += "🔒 <i>Коррупцион ҳолат бўйича хабар берган шахснинг маълумотлари қонунчиликда белгиланган тартибда сир сақланади.</i>";
+
+  await sendMessage(
+    chatId,
+    msg,
+    makeReplyKeyboard(
+      [
+        [{ text: "📝 Мурожаат йўллаш" }],
+        [{ text: "🚨 Коррупцион ҳолат бўйича хабар бериш" }],
+        [{ text: "❌ Бекор қилиш" }],
+      ],
+      { one_time_keyboard: true }
+    )
+  );
+}
+
 async function showRules(chatId) {
   let rules = "⚠️ <b>ДИҚҚАТ! МУРОЖААТ ЙЎЛЛАШ ТАРТИБИ</b>\n\n";
-  rules += "Ҳурматли фуқаро! Сиз Нишон тумани ҳокимлигига расмий мурожаат йўлламоқдасиз.\n\n";
+  rules += "Ҳурматли фуқаро! Сиз Нишон тумани ҳокимлигига расмий мурожаат ёки коррупцион ҳолат бўйича хабар йўллашингиз мумкин.\n\n";
+  rules += "🔒 <b>Муҳим:</b> коррупцион ҳолат бўйича хабар берувчи шахснинг маълумотлари қонунчиликда белгиланган тартибда сир сақланади.\n";
+  rules += "Сиз юборган маълумотлар масъуллар томонидан белгиланган тартибда кўриб чиқилади.\n\n";
   rules += "❗️ <i>Эслатма: Ўзбекистон Республикаси қонунчилигига мувофиқ, ёлғон, туҳмат ёки асоссиз маълумотларни юбориш жавобгарликка сабаб бўлади.</i>\n\n";
   rules += "Илтимос, фақат ҳақиқий ва текширилган маълумотларни киритинг.";
 
@@ -477,15 +534,11 @@ async function handleCallbackQuery(callbackQuery) {
     await deleteMessage(chatId, messageId);
 
     saveUserData(chatId, {
-      step: "waiting_name",
+      step: "waiting_appeal_type",
       data: {},
     });
 
-    await sendMessage(
-      chatId,
-      "✅ Раҳмат!\n\n😊 <b>Илтимос, Ф.И.Ш ни тўлиқ киритинг.</b>\n<i>Намуна: Алиев Вали Солиевич</i>",
-      makeReplyKeyboard([[{ text: "❌ Бекор қилиш" }]])
-    );
+    await showAppealTypeMenu(chatId);
 
     return;
   }
@@ -504,6 +557,7 @@ async function handleCallbackQuery(callbackQuery) {
 
     const currentTime = now();
     const executorName = `${fullName} (${userId})`;
+    const appealTypeText = getAppealTypeText(appealData.appeal_type || "appeal");
 
     let statusInfo = { emoji: "🆕", text: "Янги" };
     let notificationText = "";
@@ -515,7 +569,7 @@ async function handleCallbackQuery(callbackQuery) {
 
       statusInfo = { emoji: "⏳", text: "Ижрода" };
 
-      notificationText = "⏳ <b>Мурожаатингиз ҳолати ўзгарди:</b>\n\n";
+      notificationText = `⏳ <b>${escapeHtml(appealTypeText)} ҳолати ўзгарди:</b>\n\n`;
       notificationText += "Сизнинг мурожаатингиз масъуллар томонидан <b>ИЖРОГА ОЛИНДИ</b>.\n";
       notificationText += `⏰ Вақти: ${currentTime}\n\n`;
       notificationText += "Тез орада ўрганиб чиқилади.";
@@ -527,7 +581,7 @@ async function handleCallbackQuery(callbackQuery) {
 
       statusInfo = { emoji: "✅", text: "Ҳал қилинди" };
 
-      notificationText = "✅ <b>Мурожаатингиз ҳолати ўзгарди:</b>\n\n";
+      notificationText = `✅ <b>${escapeHtml(appealTypeText)} ҳолати ўзгарди:</b>\n\n`;
       notificationText += "Сизнинг мурожаатингиз <b>ҲАЛ ҚИЛИНДИ</b>.\n";
       notificationText += `⏰ Вақти: ${currentTime}\n\n`;
       notificationText += "Эътиборингиз учун раҳмат!";
@@ -540,7 +594,7 @@ async function handleCallbackQuery(callbackQuery) {
 
       statusInfo = { emoji: "🚫", text: "Рад этилди" };
 
-      notificationText = "🚫 <b>Мурожаатингиз ҳолати ўзгарди:</b>\n\n";
+      notificationText = `🚫 <b>${escapeHtml(appealTypeText)} ҳолати ўзгарди:</b>\n\n`;
       notificationText += "Мурожаатингиз маълумотлар нотўғрилиги ёки асоссизлиги сабабли <b>РАД ЭТИЛДИ</b>.\n";
       notificationText += `⏰ Вақти: ${currentTime}`;
     } else {
@@ -618,6 +672,47 @@ async function handleMessage(message) {
 
       return;
     }
+  }
+
+  if (step === "waiting_appeal_type") {
+    if (text === "📝 Мурожаат йўллаш") {
+      userData.appeal_type = "appeal";
+      userData.appeal_type_text = "Мурожаат";
+
+      saveUserData(chatId, {
+        step: "waiting_name",
+        data: userData,
+      });
+
+      await sendMessage(
+        chatId,
+        "😊 <b>Илтимос, Ф.И.Ш ни тўлиқ киритинг.</b>\n<i>Намуна: Алиев Вали Солиевич</i>",
+        makeReplyKeyboard([[{ text: "❌ Бекор қилиш" }]])
+      );
+
+      return;
+    }
+
+    if (text === "🚨 Коррупцион ҳолат бўйича хабар бериш") {
+      userData.appeal_type = "corruption";
+      userData.appeal_type_text = "Коррупцион ҳолат бўйича хабар";
+
+      saveUserData(chatId, {
+        step: "waiting_name",
+        data: userData,
+      });
+
+      await sendMessage(
+        chatId,
+        "🔒 <b>Коррупцион ҳолат бўйича хабар бериш</b>\n\nХабар берувчи шахснинг маълумотлари қонунчиликда белгиланган тартибда сир сақланади.\n\n😊 <b>Илтимос, Ф.И.Ш ни тўлиқ киритинг.</b>\n<i>Намуна: Алиев Вали Солиевич</i>",
+        makeReplyKeyboard([[{ text: "❌ Бекор қилиш" }]])
+      );
+
+      return;
+    }
+
+    await showAppealTypeMenu(chatId);
+    return;
   }
 
   if (step === "waiting_name") {
@@ -824,18 +919,31 @@ async function handleMessage(message) {
       data: userData,
     });
 
-    await sendMessage(
-      chatId,
-      "📝 <b>Мурожаат матнини киритинг:</b>\n\nИлтимос, муаммо моҳиятини қисқа ва лўнда баён қилинг.",
-      makeReplyKeyboard([[{ text: "❌ Бекор қилиш" }]])
-    );
+    if (userData.appeal_type === "corruption") {
+      await sendMessage(
+        chatId,
+        "🚨 <b>Коррупцион ҳолат мазмунини киритинг:</b>\n\nИлтимос, ҳолат қаерда, қачон, кимлар иштирокида ва қандай содир бўлганини имкон қадар аниқ баён қилинг.\n\n🔒 <i>Шахсингиз сир сақланади. Маълумотлар қонунчиликда белгиланган тартибда ўрганилади.</i>",
+        makeReplyKeyboard([[{ text: "❌ Бекор қилиш" }]])
+      );
+    } else {
+      await sendMessage(
+        chatId,
+        "📝 <b>Мурожаат матнини киритинг:</b>\n\nИлтимос, муаммо моҳиятини қисқа ва лўнда баён қилинг.",
+        makeReplyKeyboard([[{ text: "❌ Бекор қилиш" }]])
+      );
+    }
 
     return;
   }
 
   if (step === "waiting_appeal_text") {
     if (text.length < 10) {
-      await sendMessage(chatId, "⚠️ Мурожаат матни жуда қисқа. Батафсилроқ ёзинг.");
+      if (userData.appeal_type === "corruption") {
+        await sendMessage(chatId, "⚠️ Хабар матни жуда қисқа. Илтимос, ҳолатни батафсилроқ ёзинг.");
+      } else {
+        await sendMessage(chatId, "⚠️ Мурожаат матни жуда қисқа. Батафсилроқ ёзинг.");
+      }
+
       return;
     }
 
@@ -853,9 +961,15 @@ async function handleMessage(message) {
       preview_text: previewReport,
     });
 
+    let confirmText = `${previewReport}\n\n<b>Маълумотлар тўғрими? Тасдиқлаш тугмасини босинг.</b>`;
+
+    if (userData.appeal_type === "corruption") {
+      confirmText += "\n\n🔒 <i>Эслатма: коррупцион ҳолат бўйича хабар берган шахснинг маълумотлари сир сақланади.</i>";
+    }
+
     await sendMessage(
       chatId,
-      `${previewReport}\n\n<b>Маълумотлар тўғрими? Тасдиқлаш тугмасини босинг.</b>`,
+      confirmText,
       makeReplyKeyboard(
         [[{ text: "✅ Тасдиқлаш" }, { text: "❌ Бекор қилиш" }]],
         { one_time_keyboard: true }
@@ -880,11 +994,19 @@ async function handleMessage(message) {
 
       await sendToGoogleSheet(makeCreateSheetPayload(appealId, finalData));
 
-      await sendMessage(
-        chatId,
-        `✅ <b>Мурожаатингиз қабул қилинди!</b> (№${appealId})\n\nСизнинг мурожаатингиз ҳокимлик девонхонасига юборилди.\n\nСтатус ўзгарганда сизга хабар келади.`,
-        removeKeyboard()
-      );
+      if (finalData.appeal_type === "corruption") {
+        await sendMessage(
+          chatId,
+          `✅ <b>Коррупцион ҳолат бўйича хабарингиз қабул қилинди!</b> (№${appealId})\n\nХабарингиз масъулларга юборилди.\n\n🔒 Шахсингиз қонунчиликда белгиланган тартибда сир сақланади.\n\nСтатус ўзгарганда сизга хабар келади.`,
+          removeKeyboard()
+        );
+      } else {
+        await sendMessage(
+          chatId,
+          `✅ <b>Мурожаатингиз қабул қилинди!</b> (№${appealId})\n\nСизнинг мурожаатингиз ҳокимлик девонхонасига юборилди.\n\nСтатус ўзгарганда сизга хабар келади.`,
+          removeKeyboard()
+        );
+      }
 
       const adminReport = generateReport(finalData, appealId, {
         emoji: "🆕",
@@ -892,11 +1014,12 @@ async function handleMessage(message) {
       });
 
       const kb = statusKeyboard(appealId);
+      const appealTypeText = getAppealTypeText(finalData.appeal_type || "appeal");
 
       if (DEVONXONA_ID) {
         await sendMessage(
           DEVONXONA_ID,
-          `🔔 <b>Янги мурожаат (Девонхона)!</b>\n\n${adminReport}`,
+          `🔔 <b>Янги ${escapeHtml(appealTypeText)} (Девонхона)!</b>\n\n${adminReport}`,
           kb
         );
       }
@@ -905,7 +1028,7 @@ async function handleMessage(message) {
         if (adminId !== DEVONXONA_ID) {
           await sendMessage(
             adminId,
-            `🔔 <b>Янги мурожаат!</b>\n\n${adminReport}`,
+            `🔔 <b>Янги ${escapeHtml(appealTypeText)}!</b>\n\n${adminReport}`,
             kb
           );
         }
@@ -914,7 +1037,7 @@ async function handleMessage(message) {
       if (GROUP_ID) {
         await sendMessage(
           GROUP_ID,
-          `#мурожаат №${appealId}\n\n${adminReport}`,
+          `${getAppealTypeHashTag(finalData.appeal_type || "appeal")} №${appealId}\n\n${adminReport}`,
           kb
         );
       }
